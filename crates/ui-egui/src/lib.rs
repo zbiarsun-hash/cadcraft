@@ -19,7 +19,6 @@ pub mod control;
 pub mod credits;
 pub mod dialogs;
 pub mod docking;
-pub mod hatchdlg;
 pub mod spacemouse;
 // The External References palette.
 pub mod xrefs;
@@ -32,12 +31,12 @@ pub mod icons;
 pub mod layers;
 pub mod managers;
 pub mod menus;
-pub mod opening;
 pub mod options;
 pub mod palettes;
 pub mod parametric;
 pub mod plotstyles;
 pub mod quick;
+pub mod ribbon;
 pub mod shortcut_menus;
 pub mod theme;
 pub mod viewcube;
@@ -56,9 +55,6 @@ pub use control::{ControlRequest, ControlResponse, PendingReply};
 /// The host storage key for [`CadApp::prefs_json`].
 pub const PREFS_KEY: &str = "cadcraft.prefs";
 
-/// How many recently opened drawings are kept (AutoCAD's default for its file history).
-pub const RECENT_FILES: usize = 9;
-
 /// Persisted UI state (serde, so automation can read and set it).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -69,6 +65,12 @@ pub struct UiState {
     pub show_toolsets: bool,
     pub show_palettes: bool,
     pub show_toolbar: bool,
+    /// Show the ribbon (tabs of command groups) under the menu bar.
+    pub show_ribbon: bool,
+    /// The ribbon tab that is selected: "Home", "Insert", "View" or "Modify".
+    pub ribbon_tab: String,
+    /// Show only the ribbon's tab strip, to leave more room for the drawing.
+    pub ribbon_minimized: bool,
     pub show_file_tabs: bool,
     pub show_status_bar: bool,
     pub show_command_line: bool,
@@ -99,8 +101,6 @@ pub struct UiState {
     /// The version Save As writes for a drawing that has no file yet ("2000" … "2018"); a
     /// drawing opened from a file keeps that file's version.
     pub save_version: String,
-    /// Drawings opened from a path, newest first (File ▸ Open Recent and the Start page).
-    pub recent_files: Vec<String>,
 }
 
 /// A DXF/DWG file version (2000 … 2018).
@@ -152,6 +152,9 @@ impl Default for UiState {
             show_toolsets: true,
             show_palettes: true,
             show_toolbar: true,
+            show_ribbon: true,
+            ribbon_tab: "Home".into(),
+            ribbon_minimized: false,
             show_file_tabs: true,
             show_status_bar: true,
             show_command_line: true,
@@ -170,7 +173,6 @@ impl Default for UiState {
             theme: theme::ThemePref::default(),
             save_format: SaveFormat::default(),
             save_version: SaveVersion::default().year().to_string(),
-            recent_files: Vec::new(),
         }
     }
 }
@@ -194,8 +196,6 @@ pub struct CadApp {
     pub spacemouse: spacemouse::State,
     pub cmd: cmdline::CmdLine,
     pub status: Option<(String, f64)>,
-    /// Drawings being read on worker threads ([`opening`]).
-    pub opening: opening::Opening,
     pub integrated_titlebar: bool,
     control_rx: Option<Receiver<ControlRequest>>,
     pending_shots: Vec<(u64, Option<String>, std::sync::mpsc::Sender<Value>, f64)>,
@@ -226,8 +226,6 @@ pub struct CadApp {
     pub gpu_faults: std::sync::Arc<gpu::GpuFaults>,
     /// The notice shown after one (see [`autosave::gpu_notice`]).
     pub gpu_notice: Option<autosave::GpuNotice>,
-    /// The Hatch and Gradient dialog while open or picking ([`hatchdlg`]).
-    pub hatch_dlg: Option<hatchdlg::HatchDlgState>,
 }
 
 impl CadApp {
@@ -242,7 +240,6 @@ impl CadApp {
             spacemouse: spacemouse::State::default(),
             cmd: cmdline::CmdLine::default(),
             status: None,
-            opening: opening::Opening::default(),
             integrated_titlebar: false,
             control_rx: None,
             pending_shots: Vec::new(),
@@ -262,7 +259,6 @@ impl CadApp {
             recovery: autosave::Recovery::default(),
             gpu_faults: std::sync::Arc::default(),
             gpu_notice: None,
-            hatch_dlg: None,
         }
     }
 
@@ -274,11 +270,9 @@ impl CadApp {
     }
 
     /// Draw the canvas on the GPU with the app's wgpu render state (eframe's
-    /// `CreationContext::wgpu_render_state`). Without it the canvas draws on the CPU. `stencil`:
-    /// the format of the render pass's stencil buffer when the app asked for one (eframe
-    /// `NativeOptions::stencil_buffer`); clipped viewports are clipped with it.
-    pub fn set_wgpu(&mut self, rs: &egui_wgpu::RenderState, stencil: Option<egui_wgpu::wgpu::TextureFormat>) {
-        self.canvas.gpu = Some(gpu::install(rs, &self.gpu_faults, stencil));
+    /// `CreationContext::wgpu_render_state`). Without it the canvas draws on the CPU.
+    pub fn set_wgpu(&mut self, rs: &egui_wgpu::RenderState) {
+        self.canvas.gpu = Some(gpu::install(rs, &self.gpu_faults));
     }
 
     pub fn with_control(mut self, rx: Receiver<ControlRequest>) -> Self {
@@ -347,9 +341,6 @@ impl CadApp {
         if self.spacemouse.settings != spacemouse::Settings::default() {
             prefs["spacemouse"] = json!(self.spacemouse.settings);
         }
-        if !self.ui.recent_files.is_empty() {
-            prefs["recentFiles"] = json!(self.ui.recent_files);
-        }
         prefs.to_string()
     }
 
@@ -371,43 +362,15 @@ impl CadApp {
         if let Some(v) = v.get("saveVersion").and_then(Value::as_str).and_then(SaveVersion::parse) {
             self.ui.save_version = v.year().to_string();
         }
-        if let Some(files) = v.get("recentFiles").and_then(Value::as_array) {
-            self.ui.recent_files = files.iter().filter_map(Value::as_str).filter(|p| !p.is_empty()).take(RECENT_FILES).map(str::to_string).collect();
-        }
     }
 
     pub fn set_status(&mut self, s: impl Into<String>) {
         self.status = Some((s.into(), now_ms()));
     }
 
-    /// Open the drawing at `path`. Natively the file is read on a worker thread while an
-    /// "Opening ..." card shows ([`opening`]); [`Self::finish_opening`] adds it when ready. On the
-    /// web it opens at once.
     pub fn open_path(&mut self, path: &str) {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.opening.start(path);
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let r = self.run("open", json!({ "path": path }));
-            self.opened(r);
-        }
-    }
-
-    /// Add the files whose background read has finished; report the ones that failed as a failed
-    /// OPEN is reported. Called every frame.
-    pub fn finish_opening(&mut self) {
-        for (_, outcome) in self.opening.poll() {
-            let r = match outcome {
-                Ok(f) => self.session.finish_open(f).map_err(|e| e.to_string()),
-                Err(e) => Err(e),
-            };
-            if let Err(e) = &r {
-                self.session.echo(e.clone());
-            }
-            self.opened(r);
-        }
+        let r = self.run("open", json!({ "path": path }));
+        self.opened(r);
     }
 
     /// The largest file [`Self::open_bytes`] opens. A drawing opened from its contents (the
@@ -447,25 +410,12 @@ impl CadApp {
     }
 
     fn opened(&mut self, r: Result<Value, String>) {
-        match r {
-            Err(e) => self.set_status(e),
-            Ok(v) => {
-                self.ui.start_tab = false;
-                self.canvas.zoom_pending = true;
-                let doc = v.get("index").and_then(Value::as_u64).and_then(|i| self.session.docs.get(usize::try_from(i).ok()?));
-                if let Some(path) = doc.and_then(|d| d.path.clone()) {
-                    self.remember_recent(path);
-                }
-            }
+        if let Err(e) = r {
+            self.set_status(e);
+        } else {
+            self.ui.start_tab = false;
+            self.canvas.zoom_pending = true;
         }
-    }
-
-    /// Put `path` first in File ▸ Open Recent and on the Start page.
-    fn remember_recent(&mut self, path: String) {
-        let recent = &mut self.ui.recent_files;
-        recent.retain(|p| *p != path);
-        recent.insert(0, path);
-        recent.truncate(RECENT_FILES);
     }
 
     /// Per-frame logic before layout.
@@ -491,8 +441,6 @@ impl CadApp {
             self.shown_follows_system = follows_system;
         }
         self.drain_control(ctx);
-        self.finish_opening();
-        self.opening.show(ctx);
         if !self.synthetic.is_empty() {
             ctx.request_repaint();
         }
@@ -500,7 +448,6 @@ impl CadApp {
         self.issue_screenshots(ctx);
         self.gpu_fault_tick(ctx);
         managers::plot_window_resume(self, ctx);
-        hatchdlg::resume(self);
         self.autosave_tick(ctx);
         menus::shortcuts(self, ctx);
         #[cfg(not(target_arch = "wasm32"))]
@@ -551,6 +498,7 @@ impl CadApp {
         if self.ui.in_window_menu {
             menus::menu_bar(self, ui);
         }
+        ribbon::show(self, ui);
         if self.ui.show_status_bar {
             chrome::status_bar(self, ui);
         }

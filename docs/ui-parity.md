@@ -1,6 +1,6 @@
 # UI parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (Hatch and Gradient / Hatch Edit dialogs) · **Target:** Autodesk AutoCAD 2027 for Mac (26.0)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (Ribbon with Home, Insert, View and Modify tabs) · **Target:** Autodesk AutoCAD 2027 for Mac (26.0)
 
 How CADCraft's interaction compares with AutoCAD's: point entry, object snaps, tracking, dynamic
 input, grips, selection, the command line, chrome and navigation. A drafter's speed in AutoCAD
@@ -92,7 +92,6 @@ ignored; there are no context menus. Remaining: **≈ 110–170 Opus 5.5 hours**
 | Snap (rectangular, isometric, polar snap) | yes | rectangular and isometric (SNAPSTYL 1: the snap Y spacing along the isometric axes), from SNAPBASE turned by SNAPANG |
 | Isometric drafting (ISODRAFT, isoplanes F5) | yes | yes (#556): ISODRAFT and the status-bar toggle set SNAPSTYL and the plane; ISOPLANE / F5 / Ctrl+E cycle Left, Top, Right (SNAPISOPAIR); ortho, direct distance entry and the crosshair follow the plane's axes; ELLIPSE Isocircle (radius or Diameter, also for elliptical arcs); Drafting Settings snap style radio. Engine: `snap/iso.rs`, `cmd/settings/iso.rs` |
 | Drafting Settings dialog | yes | yes (`dialogs.rs:36-80`) |
-| Hatch and Gradient / Hatch Edit dialogs | yes | yes (`hatchdlg.rs`): pattern swatches, gradient colours and shapes, origin, pick points or objects, associative, separate, island detection; opened by HATCH, GRADIENT (HPDLGMODE), HATCHEDIT, right-click or double-clicking a hatch; no Preview or Inherit Properties |
 
 ## Dynamic input (≈ 45%)
 
@@ -158,6 +157,7 @@ down-arrow options menu (DYNPROMPT), and DYNDIM.
 | Menu bar | 11 menus, 491 leaf items | same 11 menus; 245/491 items covered (233 by `cargo xtask parity`, which counts engine commands only, plus 12 UI-only items: see [parity-checklist.md](parity-checklist.md)) |
 | Tool Bar, File tabs, Start tab, layout tabs | yes | yes |
 | Tool Sets palette (Drafting, Modeling, … with flyouts) | yes | yes for 2D groups |
+| Ribbon (tabs of labelled panels) | not in the Mac version, which uses the Tool Sets palette (AutoCAD for Windows has a Ribbon) | beyond the Mac target, so it does not move the percentage: Home, Insert, View and Modify tabs under the menu bar (Window > Ribbon): every button starts an existing command, in the same groups as Tool Sets plus Layers, Properties, Navigate and Window; text buttons where a command has no icon yet. Scrolls sideways in narrow windows; the tab strip alone remains when minimised; the selected tab and the minimised state are saved with the workspace. No Annotate, Layout, Manage or Output tabs, contextual tabs, drop-down galleries or panel flyouts, layer and property drop-downs, or large/small-icon and panel-title customisation |
 | Properties Inspector, Quick Properties | yes | yes (every control acts or is visibly unavailable, #182); block references show read-only Position X/Y/Z from their stored insertion point; coordinate editing is still missing |
 | Layer Properties Manager (filters, states, VP overrides) | yes | yes |
 | Blocks palette, Content | yes | Blocks window (click to insert, #28) |
@@ -202,7 +202,7 @@ down-arrow options menu (DYNPROMPT), and DYNDIM.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-12 | minor | Hatch and Gradient / Hatch Edit dialogs (HATCH, GRADIENT, HATCHEDIT, double-click a hatch; HPDLGMODE) |
+| 2026-10-13 | minor | Ribbon: Home, Insert, View and Modify tabs of labelled groups under the menu bar (Window > Ribbon), reusing the Tool Sets tool tables and the existing commands; an addition beyond the Mac target, so no percentage changes |
 | 2026-10-12 | minor | Block references now show their stored insertion X/Y/Z in the Properties Inspector, including nonzero Z; fields are read-only |
 | 2026-10-11 | minor | Isometric drafting (#556): isometric snap and grid, ISODRAFT, ISOPLANE (F5), ortho along isoplane axes, ELLIPSE Isocircle |
 | 2026-10-11 | minor | Object snap tracking, Extension, Parallel, Apparent Intersection, additional polar angles (#379): tracking 30% → 70%, object snaps 40% → 45%; total 43% → 48% |

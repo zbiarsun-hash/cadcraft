@@ -9,6 +9,8 @@ use egui_kittest::kittest::Queryable;
 fn app() -> CadApp {
     let mut app = CadApp::new(Session::default(), Services::default());
     app.run("ui.sample", serde_json::json!({})).unwrap();
+    // The tests below find Tool Sets buttons by name; the ribbon has its own tests.
+    app.ui.show_ribbon = false;
     app
 }
 

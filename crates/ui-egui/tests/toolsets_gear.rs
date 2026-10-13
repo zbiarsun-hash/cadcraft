@@ -17,6 +17,9 @@ const HIDDEN_CMD: &str = "revcloud";
 fn harness() -> Harness<'static, CadApp> {
     let mut app = CadApp::new(Session::default(), Services::default());
     app.ui.in_window_menu = false;
+    // These tests drive the Tool Sets palette by tool name; the ribbon (covered by its own
+    // tests) would show the same names a second time.
+    app.ui.show_ribbon = false;
     app.integrated_titlebar = true;
     let mut harness = Harness::builder().with_size(vec2(1280.0, 760.0)).build_ui_state(
         |ui, app: &mut CadApp| {

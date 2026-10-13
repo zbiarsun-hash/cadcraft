@@ -10,6 +10,9 @@ fn harness() -> Harness<'static, CadApp> {
     let mut app = CadApp::new(Session::default(), Services::default());
     app.integrated_titlebar = true;
     app.ui.in_window_menu = false;
+    // These tests drive the Tool Sets palette by tool name; the ribbon (covered by its own
+    // tests) would show the same names a second time.
+    app.ui.show_ribbon = false;
     let mut h = Harness::builder().with_size(vec2(1600.0, 1000.0)).build_ui_state(
         |ui, app: &mut CadApp| {
             ui.ctx().set_os(egui::os::OperatingSystem::Mac);

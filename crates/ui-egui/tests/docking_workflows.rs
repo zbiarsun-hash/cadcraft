@@ -17,6 +17,9 @@ fn harness(state: Option<UiState>, width: f32, scale: f32) -> Harness<'static, C
         app.ui = state;
     }
     app.ui.in_window_menu = false;
+    // These tests drive the Tool Sets palette by tool name; the ribbon (covered by its own
+    // tests) would show the same names a second time.
+    app.ui.show_ribbon = false;
     app.integrated_titlebar = true;
     let mut harness = Harness::builder().with_size(vec2(width, 760.0)).with_pixels_per_point(scale).build_ui_state(
         |ui, app: &mut CadApp| {

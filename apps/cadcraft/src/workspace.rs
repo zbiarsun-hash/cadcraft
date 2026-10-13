@@ -36,6 +36,9 @@ fn snapshot(ui: &UiState) -> Result<Value, String> {
     if !matches!(ui.toolset_tab.as_str(), "Drafting" | "Modeling") {
         return Err("toolsetTab must be Drafting or Modeling".into());
     }
+    if !cadcraft_ui_egui::ribbon::is_tab(&ui.ribbon_tab) {
+        return Err("ribbonTab must be a ribbon tab name".into());
+    }
     if ui.collapsed_groups.len() > 64 || ui.collapsed_groups.iter().any(|name| name.len() > 256) {
         return Err("collapsedGroups exceeds the workspace size limit".into());
     }
@@ -47,6 +50,9 @@ fn snapshot(ui: &UiState) -> Result<Value, String> {
         "showToolsets": ui.show_toolsets,
         "showPalettes": ui.show_palettes,
         "showToolbar": ui.show_toolbar,
+        "showRibbon": ui.show_ribbon,
+        "ribbonTab": ui.ribbon_tab,
+        "ribbonMinimized": ui.ribbon_minimized,
         "showFileTabs": ui.show_file_tabs,
         "showStatusBar": ui.show_status_bar,
         "showCommandLine": ui.show_command_line,
@@ -214,6 +220,8 @@ mod tests {
             history_lines: 5,
             dialog: Some("layers".into()),
             start_tab: true,
+            ribbon_tab: "Modify".into(),
+            ribbon_minimized: true,
             ..Default::default()
         };
         first.save_if_changed(&ui).unwrap();
@@ -226,11 +234,32 @@ mod tests {
         let restored = restored.unwrap();
         assert_eq!(snapshot(&restored).unwrap(), snapshot(&ui).unwrap());
         assert!(restored.dialog.is_none() && !restored.start_tab);
+        assert_eq!(restored.ribbon_tab, "Modify");
+        assert!(restored.ribbon_minimized && restored.show_ribbon);
         let mut transient_only = ui.clone();
         transient_only.dialog = None;
         transient_only.start_tab = false;
         first.save_if_changed(&transient_only).unwrap();
         assert_eq!(fs::read(&path).unwrap(), bytes);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn ribbon_state_defaults_for_old_files_and_rejects_unknown_tabs() {
+        let directory = temp_dir();
+        let path = directory.join("workspace.json");
+        // A workspace saved before the ribbon existed opens on the Home tab with the ribbon shown.
+        fs::write(&path, serde_json::to_vec(&json!({"version":1,"workspace":{"showToolbar":false}})).unwrap()).unwrap();
+        let (_, restored, error) = Workspace::at(Some(path.clone()));
+        assert!(error.is_none());
+        let restored = restored.unwrap();
+        assert_eq!(restored.ribbon_tab, "Home");
+        assert!(restored.show_ribbon && !restored.ribbon_minimized);
+        // A tab name the ribbon does not have is refused like any other invalid workspace value.
+        fs::write(&path, serde_json::to_vec(&json!({"version":1,"workspace":{"ribbonTab":"Nope"}})).unwrap()).unwrap();
+        let (_, restored, error) = Workspace::at(Some(path));
+        assert!(restored.is_none());
+        assert!(error.is_some_and(|e| e.contains("ribbonTab")));
         fs::remove_dir_all(directory).unwrap();
     }
 
