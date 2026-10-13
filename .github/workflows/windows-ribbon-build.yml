@@ -1,13 +1,8 @@
-```yaml
+
 name: Windows build (Ribbon)
 
-on:
+'on':
   workflow_dispatch:
-    inputs:
-      run_tests:
-        description: "Also run tests after building"
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -16,23 +11,26 @@ jobs:
   windows:
     runs-on: windows-latest
     timeout-minutes: 120
+
     env:
       CARGO_TERM_COLOR: never
       CARGO_INCREMENTAL: "0"
-      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: "-C target-feature=+crt-static"
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
 
       - name: Install Rust
         shell: pwsh
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+          rustup target add x86_64-pc-windows-msvc
           rustc --version
           cargo --version
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
 
       - name: Build CADCraft
         shell: pwsh
@@ -42,13 +40,16 @@ jobs:
         shell: pwsh
         run: |
           $out = 'dist\CADCraft-windows-x64-ribbon'
-          New-Item -ItemType Directory $out -Force | Out-Null
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          if (!(Test-Path 'target\x86_64-pc-windows-msvc\release\cadcraft.exe')) {
+            throw 'cadcraft.exe was not found after building.'
+          }
           Copy-Item 'target\x86_64-pc-windows-msvc\release\cadcraft.exe' $out
-          Compress-Archive -Path $out -DestinationPath 'dist\CADCraft-windows-x64-ribbon.zip' -Force
+          Compress-Archive -Path "$out\*" -DestinationPath 'dist\CADCraft-windows-x64-ribbon.zip' -Force
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
         with:
           name: CADCraft-windows-x64-ribbon
           path: dist/CADCraft-windows-x64-ribbon.zip
           if-no-files-found: error
-```
